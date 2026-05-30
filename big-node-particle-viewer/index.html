@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>独立模型粒子查看器</title>
+  <style>
+    :root{
+      --bg:#07080c;
+      --ink:#e6dfd3;
+      --muted:rgba(230,223,211,.52);
+      --line:rgba(230,223,211,.15);
+      --panel:rgba(7,8,12,.62);
+      --accent:#d8bd78;
+      --accent-soft:rgba(216,189,120,.18);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--ink)}
+    body{
+      font-family:"Noto Serif SC","Songti SC",serif;
+      letter-spacing:0;
+    }
+    #stage{position:fixed;inset:0}
+    canvas{display:block;width:100%;height:100%}
+    #topbar{
+      position:fixed;left:24px;top:22px;right:24px;z-index:10;
+      display:flex;align-items:flex-start;justify-content:space-between;gap:18px;
+      pointer-events:none;
+    }
+    .brand{pointer-events:auto;max-width:420px}
+    .eyebrow{
+      font-family:"Cormorant Garamond","Times New Roman",serif;
+      font-size:10px;color:rgba(216,189,120,.46);
+      letter-spacing:6px;text-transform:uppercase;margin-bottom:10px;
+    }
+    h1{margin:0;font-weight:300;font-size:25px;letter-spacing:8px;color:rgba(234,226,208,.86)}
+    .sub{margin-top:10px;font-size:12px;color:var(--muted);line-height:1.9;letter-spacing:1px}
+    #panel{
+      width:min(390px,calc(100vw - 48px));
+      pointer-events:auto;
+      background:var(--panel);
+      border-left:1px solid var(--line);
+      border-bottom:1px solid var(--line);
+      backdrop-filter:blur(18px);
+      padding:18px 18px 16px;
+    }
+    .section-title{
+      margin:4px 0 12px;
+      color:rgba(216,189,120,.78);
+      font-size:12px;
+      letter-spacing:4px;
+    }
+    .row{display:grid;grid-template-columns:86px 1fr 48px;gap:10px;align-items:center;margin:12px 0}
+    .row.wide{grid-template-columns:86px 1fr}
+    .row.two{grid-template-columns:1fr 1fr}
+    label{font-size:12px;color:rgba(216,189,120,.72);letter-spacing:2px}
+    input,button{
+      width:100%;
+      font:inherit;
+    }
+    input[type=text]{
+      background:rgba(255,255,255,.025);
+      border:1px solid rgba(216,189,120,.22);
+      color:rgba(234,226,208,.86);
+      padding:9px 10px;
+      outline:none;
+    }
+    input[type=file]{
+      color:rgba(234,226,208,.72);
+      font-size:12px;
+    }
+    input[type=file]::file-selector-button{
+      margin-right:10px;
+      background:rgba(255,255,255,.025);
+      border:1px solid rgba(216,189,120,.24);
+      color:rgba(234,226,208,.82);
+      padding:8px 10px;
+      cursor:pointer;
+      font-family:inherit;
+    }
+    button{
+      appearance:none;background:rgba(255,255,255,.02);
+      border:1px solid rgba(216,189,120,.24);
+      color:rgba(234,226,208,.82);
+      padding:9px 10px;
+      cursor:pointer;
+      letter-spacing:3px;
+    }
+    button:hover,input[type=file]::file-selector-button:hover,input[type=text]:focus{
+      border-color:rgba(216,189,120,.48);
+      color:rgba(255,246,222,.95);
+    }
+    input[type=range]{accent-color:#d8bd78}
+    .val{
+      font-family:"Cormorant Garamond","Times New Roman",serif;
+      font-size:13px;color:rgba(234,226,208,.72);text-align:right;
+    }
+    #status{
+      margin-top:12px;padding-top:12px;border-top:1px solid rgba(216,189,120,.12);
+      font-family:"Cormorant Garamond","Times New Roman",serif;
+      font-size:12px;color:rgba(216,210,199,.55);line-height:1.7;letter-spacing:1px;
+      white-space:pre-line;
+    }
+    #dropzone{
+      margin-top:10px;
+      padding:14px;
+      border:1px dashed rgba(216,189,120,.24);
+      background:linear-gradient(135deg, rgba(216,189,120,.08), rgba(255,255,255,.015));
+      color:rgba(230,223,211,.48);
+      font-size:12px;
+      line-height:1.7;
+      letter-spacing:1px;
+    }
+    #dropzone.drag{
+      border-color:rgba(216,189,120,.65);
+      background:rgba(216,189,120,.12);
+      color:rgba(255,246,222,.82);
+    }
+    #hint{
+      position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+      color:rgba(216,210,199,.38);font-size:11px;letter-spacing:3px;z-index:10;
+    }
+    #veil{
+      position:fixed;inset:0;z-index:20;display:grid;place-items:center;
+      background:radial-gradient(circle at center, rgba(9,10,16,.72), rgba(4,5,8,.94));
+      color:rgba(234,226,208,.76);letter-spacing:6px;font-size:13px;
+      opacity:0;pointer-events:none;transition:opacity .35s ease;
+    }
+    #veil.show{opacity:1;pointer-events:auto}
+    @media (max-width:760px){
+      #topbar{left:14px;right:14px;top:14px;display:block}
+      h1{font-size:21px;letter-spacing:5px}
+      #panel{margin-top:18px;width:100%;padding:14px}
+      .row{grid-template-columns:74px 1fr 40px}
+      .row.wide{grid-template-columns:74px 1fr}
+      #hint{display:none}
+    }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="topbar">
+    <div class="brand">
+      <div class="eyebrow">Standalone Particle Viewer</div>
+      <h1>模型粒子查看器</h1>
+      <div class="sub">选择任意 GLB 模型，使用提取出的模型转点云逻辑单独查看。此页面不依赖任何旧项目节点。</div>
+    </div>
+    <div id="panel">
+      <div class="section-title">— 模型来源 —</div>
+      <div class="row wide">
+        <label for="fileInput">本地</label>
+        <input id="fileInput" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json">
+      </div>
+      <div class="row wide">
+        <label for="pathInput">路径</label>
+        <input id="pathInput" type="text" placeholder="./models/example.glb">
+      </div>
+      <div class="row two">
+        <button id="loadPathBtn">加载路径</button>
+        <button id="fitBtn">自动取景</button>
+      </div>
+      <div id="dropzone">也可以把 .glb 文件拖到这里。<br>相对路径适合放在这个查看器文件夹或项目文件夹里的模型。</div>
+
+      <div class="section-title" style="margin-top:16px">— 粒子参数 —</div>
+      <div class="row">
+        <label for="pointBudget">预算</label>
+        <input id="pointBudget" type="range" min="80000" max="3000000" step="20000" value="1200000">
+        <span class="val" id="pointBudgetVal">120万</span>
+      </div>
+      <div class="row">
+        <label for="pointSize">粒径</label>
+        <input id="pointSize" type="range" min="0.18" max="1.2" step="0.01" value="0.5">
+        <span class="val" id="pointSizeVal">0.50</span>
+      </div>
+      <div class="row">
+        <label for="opacity">透明</label>
+        <input id="opacity" type="range" min="0.1" max="1" step="0.01" value="0.95">
+        <span class="val" id="opacityVal">0.95</span>
+      </div>
+      <div class="row">
+        <label for="inkMix">墨化</label>
+        <input id="inkMix" type="range" min="0" max="1" step="0.01" value="0.32">
+        <span class="val" id="inkMixVal">0.32</span>
+      </div>
+      <div class="row two">
+        <button id="reloadBtn">重新转换</button>
+        <button id="copyBtn">复制参数</button>
+      </div>
+      <div id="status">请选择或拖入一个 .glb 模型</div>
+    </div>
+  </div>
+  <div id="hint">拖拽旋转 · 滚轮缩放 · 右键平移</div>
+  <div id="veil">转换中</div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/DRACOLoader.js';
+
+    const stage = document.getElementById('stage');
+    const statusEl = document.getElementById('status');
+    const veil = document.getElementById('veil');
+    const fileInput = document.getElementById('fileInput');
+    const pathInput = document.getElementById('pathInput');
+    const dropzone = document.getElementById('dropzone');
+    const pointBudget = document.getElementById('pointBudget');
+    const pointSize = document.getElementById('pointSize');
+    const opacity = document.getElementById('opacity');
+    const inkMix = document.getElementById('inkMix');
+    const pointBudgetVal = document.getElementById('pointBudgetVal');
+    const pointSizeVal = document.getElementById('pointSizeVal');
+    const opacityVal = document.getElementById('opacityVal');
+    const inkMixVal = document.getElementById('inkMixVal');
+
+    const renderer = new THREE.WebGLRenderer({ antialias:false, powerPreference:'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    stage.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x080610);
+    scene.fog = new THREE.FogExp2(0x080610, 0.010);
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 1000);
+    camera.position.set(0, 2.2, 12);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 0.2;
+    controls.maxDistance = 180;
+    controls.target.set(0, 0, 0);
+    controls.update();
+
+    scene.add(new THREE.AmbientLight(0x0a0e1a,0.4));
+    const keyLight = new THREE.DirectionalLight(0xfff8f0,6.5);
+    keyLight.position.set(-6,16,5);
+    scene.add(keyLight);
+    const fillLight = new THREE.DirectionalLight(0x90a0d0,0.5);
+    fillLight.position.set(10,4,-6);
+    scene.add(fillLight);
+    const backLight = new THREE.PointLight(0xc9a96e,3.5,40);
+    backLight.position.set(0,-4,-10);
+    scene.add(backLight);
+
+    const loader = new GLTFLoader();
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
+    loader.setDRACOLoader(draco);
+
+    let points = null;
+    let pointMaterial = null;
+    let currentStats = null;
+    let currentSource = null;
+    let currentObjectUrl = null;
+    const clock = new THREE.Clock();
+
+    function makePcMat(){
+      return new THREE.ShaderMaterial({
+        uniforms:{
+          uTime:     {value:0},
+          uSize:     {value:parseFloat(pointSize.value)},
+          uZoomScale:{value:1.0},
+          uPtMax:    {value:2.7},
+          uPtPersp:  {value:50.0},
+          uHotA:     {value:new THREE.Vector4(0,0,0,1)},
+          uHotB:     {value:new THREE.Vector4(0,0,0,1)},
+          uHotC:     {value:new THREE.Vector4(0,0,0,1)},
+          uHotMixA:  {value:0.0},
+          uHotMixB:  {value:0.0},
+          uHotMixC:  {value:0.0},
+          uMouseX:   {value:0.0},
+          uMouseZ:   {value:0.0},
+          uMouseStr: {value:0.0},
+          uOpacity:  {value:parseFloat(opacity.value)},
+          uDepthNear:{value:1.5},
+          uDepthFar: {value:18.0},
+          uInkMix:   {value:parseFloat(inkMix.value)},
+          uYBounds:  {value:new THREE.Vector2(-8.0, 8.0)},
+          uKeyDir:   {value:new THREE.Vector3(-0.5,0.85,0.22).normalize()},
+          uFillDir:  {value:new THREE.Vector3(0.7,0.3,-0.5).normalize()},
+          uKeyCol:   {value:new THREE.Color(1.00,0.98,0.94)},
+          uFillCol:  {value:new THREE.Color(0.02,0.02,0.04)},
+          uRimCol:   {value:new THREE.Color(1.0,0.88,0.55)},
+          uSpecCol:  {value:new THREE.Color(1.0,1.0,1.0)}
+        },
+        vertexShader:`
+          uniform float uTime, uSize, uZoomScale, uPtMax, uPtPersp;
+          uniform vec4 uHotA, uHotB, uHotC;
+          uniform float uHotMixA, uHotMixB, uHotMixC;
+          uniform vec3 uKeyDir, uFillDir;
+          uniform vec3 uKeyCol, uFillCol, uRimCol, uSpecCol;
+          uniform float uInkMix;
+          uniform vec2  uYBounds;
+          attribute vec3 aNormal;
+          attribute vec3 aColor;
+          attribute float aPhase;
+          varying vec3 vCol;
+          varying float vDepth;
+          varying float vHighlight;
+          varying float vYFade;
+
+          void main(){
+            vec3 pos2 = position;
+            float breathT = uTime * 0.28;
+            float px = aPhase * 6.2832;
+            pos2.x += sin(breathT + px)             * 0.012;
+            pos2.y += sin(breathT * 1.17 + px*1.31) * 0.010;
+            pos2.z += sin(breathT * 0.89 + px*0.73) * 0.012;
+            vec3 n = normalize(aNormal);
+
+            float keyDiff  = max(0.0, dot(n, uKeyDir));
+            float fillDiff = max(0.0, dot(n, uFillDir));
+            float rimDiff  = max(0.0, dot(n, vec3(0.0,-0.15,-0.99)));
+            float shadowMask = pow(keyDiff, 0.7);
+            float darkMask   = 1.0 - smoothstep(0.0, 0.35, keyDiff);
+
+            vec3 viewDir = normalize(vec3(0.0,0.0,1.0));
+            vec3 halfVec = normalize(uKeyDir + viewDir);
+            float spec   = pow(max(0.0, dot(n, halfVec)), 28.0);
+
+            float allLight = keyDiff + fillDiff + rimDiff;
+            float aoFactor = 1.0 - smoothstep(0.0, 0.6, allLight);
+            float aoDark   = pow(aoFactor, 1.8);
+
+            float hotA = (1.0 - smoothstep(uHotA.w * 0.55, uHotA.w, distance(pos2, uHotA.xyz))) * uHotMixA;
+            float hotB = (1.0 - smoothstep(uHotB.w * 0.55, uHotB.w, distance(pos2, uHotB.xyz))) * uHotMixB;
+            float hotC = (1.0 - smoothstep(uHotC.w * 0.55, uHotC.w, distance(pos2, uHotC.xyz))) * uHotMixC;
+            float hot = max(hotA, max(hotB, hotC));
+            float hotPulse = 0.88 + 0.12 * sin(uTime * 3.0 + hot * 4.0);
+
+            vec3 rawCol = aColor;
+            float luma  = dot(rawCol, vec3(0.299, 0.587, 0.114));
+            vec3 gray   = vec3(luma * 0.72);
+            vec3 inkCol = mix(rawCol, gray, uInkMix) * 0.88;
+
+            vec3 lit=vec3(0.0);
+            lit += inkCol * shadowMask * 3.2;
+            lit += uFillCol * (darkMask+aoDark) * 1.0;
+            lit += inkCol * pow(rimDiff,2.5) * 1.2;
+            float topDiff=max(0.0,dot(n,vec3(0.0,1.0,0.0)));
+            lit += vec3(1.0,0.88,0.55)*pow(topDiff,3.0)*1.2;
+            lit += uSpecCol * spec * 4.5;
+            lit += vec3(0.02)*(1.0-aoDark);
+
+            float twinkle = spec > 0.3
+              ? 0.7 + 0.3*sin(uTime*4.2 + aPhase*6.28 + spec*3.0)
+              : 1.0;
+            vec3 hotCol = mix(vec3(1.0,0.92,0.70), vec3(1.0,0.98,0.90), 0.45 + 0.55 * hotPulse);
+            lit += hotCol * hot * 0.9;
+            vCol = clamp(mix(lit * twinkle, hotCol, hot * 0.35), 0.0, 0.96);
+            vHighlight = spec + rimDiff*0.5;
+
+            float yNorm = (pos2.y - uYBounds.x) / max(uYBounds.y - uYBounds.x, 0.001);
+            vYFade = smoothstep(0.0, 0.22, yNorm);
+
+            float edgeFactor = rimDiff*1.5 + spec*2.0 + 0.4;
+            vec4 mv = modelViewMatrix * vec4(pos2, 1.0);
+            vDepth = -mv.z;
+            float sz = uSize * uZoomScale * (1.0 + hot * 0.55) * edgeFactor * (uPtPersp/max(vDepth,0.1));
+            gl_PointSize = clamp(sz, 0.3, uPtMax);
+            gl_Position  = projectionMatrix * mv;
+          }
+        `,
+        fragmentShader:`
+          uniform float uOpacity, uDepthNear, uDepthFar;
+          varying vec3 vCol;
+          varying float vDepth;
+          varying float vHighlight;
+          varying float vYFade;
+          void main(){
+            vec2 uv  = gl_PointCoord - 0.5;
+            float d  = length(uv);
+            if(d > 0.5) discard;
+
+            float sharpness = mix(0.35, 0.15, clamp(vHighlight*2.0,0.0,1.0));
+            float shape = 1.0 - smoothstep(sharpness, 0.5, d);
+
+            float halo = exp(-d*d*18.0) * clamp(vHighlight*1.5,0.0,1.0);
+            shape = clamp(shape + halo*0.6, 0.0, 1.0);
+
+            float depthFade = 1.0 - smoothstep(uDepthNear, uDepthFar, vDepth);
+            float depthFade2 = depthFade * depthFade;
+            float alpha = uOpacity * shape * depthFade2 * vYFade;
+            gl_FragColor = vec4(vCol, alpha);
+          }
+        `,
+        transparent:true,
+        depthTest:true,
+        depthWrite:false,
+        blending:THREE.NormalBlending
+      });
+    }
+
+    function clearCurrentPoints(){
+      if(!points) return;
+      scene.remove(points);
+      points.geometry.dispose();
+      points.material.dispose();
+      points = null;
+    }
+
+    function buildPointCloudGeometryFromGltf(gltf, pcMat, budget){
+      const posArr = [];
+      const nrmArr = [];
+      const phaseArr = [];
+      const colArr = [];
+      let totalVerts = 0;
+      gltf.scene.updateMatrixWorld(true);
+      gltf.scene.traverse(c=>{
+        if(c.isMesh && c.geometry.attributes.position) totalVerts += c.geometry.attributes.position.count;
+      });
+      const STEP = Math.max(1, Math.floor(totalVerts / budget));
+
+      let texPixels = null;
+      const texW = 512;
+      const texH = 512;
+      let foundTex = null;
+      gltf.scene.traverse(c=>{
+        if(foundTex || !c.isMesh) return;
+        const mat = Array.isArray(c.material) ? c.material[0] : c.material;
+        if(mat && mat.map) foundTex = mat.map;
+      });
+      if(foundTex){
+        const rt = new THREE.WebGLRenderTarget(texW, texH);
+        const sc2 = new THREE.Scene();
+        sc2.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2), new THREE.MeshBasicMaterial({map:foundTex})));
+        const cam2 = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+        renderer.setRenderTarget(rt);
+        renderer.render(sc2, cam2);
+        renderer.setRenderTarget(null);
+        texPixels = new Uint8Array(texW * texH * 4);
+        renderer.readRenderTargetPixels(rt, 0, 0, texW, texH, texPixels);
+        rt.dispose();
+      }
+
+      function sampleTex(u,v){
+        if(!texPixels) return [200,185,160];
+        const px = Math.max(0, Math.min(texW-1, Math.floor(((u%1+1)%1)*texW)));
+        const py = Math.max(0, Math.min(texH-1, Math.floor(((v%1+1)%1)*texH)));
+        const idx = (py*texW+px)*4;
+        return [texPixels[idx], texPixels[idx+1], texPixels[idx+2]];
+      }
+
+      const v = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      gltf.scene.traverse(child=>{
+        if(!child.isMesh) return;
+        const geo = child.geometry;
+        const pa = geo.attributes.position;
+        const na = geo.attributes.normal;
+        if(!pa) return;
+        const m4 = child.matrixWorld;
+        const nm3 = new THREE.Matrix3().getNormalMatrix(m4);
+        const uva = geo.attributes.uv || geo.attributes.texcoord_0 || geo.attributes.TEXCOORD_0;
+        for(let vi=0; vi<pa.count; vi+=STEP){
+          v.set(pa.getX(vi), pa.getY(vi), pa.getZ(vi)).applyMatrix4(m4);
+          posArr.push(v.x, v.y, v.z);
+          if(na){
+            n.set(na.getX(vi), na.getY(vi), na.getZ(vi)).applyMatrix3(nm3).normalize();
+            nrmArr.push(n.x, n.y, n.z);
+          }else{
+            nrmArr.push(0,1,0);
+          }
+          phaseArr.push(Math.random());
+          if(uva){
+            const rgb = sampleTex(uva.getX(vi), uva.getY(vi));
+            colArr.push(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+          }else{
+            colArr.push(0.86,0.84,0.80);
+          }
+        }
+      });
+
+      const paBuf = new Float32Array(posArr);
+      const pcGeo = new THREE.BufferGeometry();
+      pcGeo.setAttribute('position', new THREE.BufferAttribute(paBuf,3));
+      pcGeo.setAttribute('aNormal', new THREE.BufferAttribute(new Float32Array(nrmArr),3));
+      pcGeo.setAttribute('aPhase', new THREE.BufferAttribute(new Float32Array(phaseArr),1));
+      pcGeo.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(colArr),3));
+      pcGeo.computeBoundingBox();
+
+      const box = pcGeo.boundingBox;
+      const center = new THREE.Vector3();
+      const size = new THREE.Vector3();
+      box.getCenter(center);
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const scale = 15 / maxDim;
+      for(let i=0; i<paBuf.length; i+=3){
+        paBuf[i] = (paBuf[i] - center.x) * scale;
+        paBuf[i+1] = (paBuf[i+1] - center.y) * scale;
+        paBuf[i+2] = (paBuf[i+2] - center.z) * scale;
+      }
+      pcGeo.attributes.position.needsUpdate = true;
+      pcGeo.computeBoundingBox();
+      pcGeo.computeBoundingSphere();
+      if(pcMat && pcMat.uniforms && pcMat.uniforms.uYBounds){
+        pcMat.uniforms.uYBounds.value.set(pcGeo.boundingBox.min.y, pcGeo.boundingBox.max.y);
+      }
+      return {
+        geometry: pcGeo,
+        stats: {
+          sourceVertices: totalVerts,
+          sampledPoints: Math.floor(paBuf.length / 3),
+          step: STEP,
+          hasTexture: Boolean(texPixels),
+          scale
+        }
+      };
+    }
+
+    function fitCameraToPoints(){
+      if(!points || !points.geometry.boundingSphere) return;
+      const sphere = points.geometry.boundingSphere;
+      const radius = Math.max(sphere.radius, 0.1);
+      const fov = THREE.MathUtils.degToRad(camera.fov);
+      const dist = radius / Math.sin(fov * 0.5);
+      const dir = new THREE.Vector3(0.42, 0.26, 1).normalize();
+      camera.position.copy(sphere.center).addScaledVector(dir, dist * 1.05);
+      camera.near = Math.max(0.01, dist / 100);
+      camera.far = Math.max(1000, dist * 12);
+      camera.updateProjectionMatrix();
+      controls.target.copy(sphere.center);
+      controls.minDistance = radius * 0.08;
+      controls.maxDistance = radius * 12;
+      controls.update();
+      if(pointMaterial){
+        pointMaterial.uniforms.uDepthNear.value = Math.max(0.1, dist * 0.08);
+        pointMaterial.uniforms.uDepthFar.value = Math.max(18, dist * 2.4);
+      }
+    }
+
+    function formatBudget(v){
+      const n = Number(v);
+      return n >= 10000 ? `${Math.round(n/10000)}万` : String(n);
+    }
+
+    function setStatus(text){
+      statusEl.textContent = text;
+    }
+
+    function updateUniforms(){
+      pointBudgetVal.textContent = formatBudget(pointBudget.value);
+      pointSizeVal.textContent = Number(pointSize.value).toFixed(2);
+      opacityVal.textContent = Number(opacity.value).toFixed(2);
+      inkMixVal.textContent = Number(inkMix.value).toFixed(2);
+      if(!pointMaterial) return;
+      pointMaterial.uniforms.uSize.value = parseFloat(pointSize.value);
+      pointMaterial.uniforms.uOpacity.value = parseFloat(opacity.value);
+      pointMaterial.uniforms.uInkMix.value = parseFloat(inkMix.value);
+    }
+
+    async function loadModelFromUrl(url, label){
+      if(!url) return;
+      veil.classList.add('show');
+      setStatus(`加载模型...\n${label || url}`);
+      clearCurrentPoints();
+      pointMaterial = makePcMat();
+      try{
+        const gltf = await loader.loadAsync(url);
+        const result = buildPointCloudGeometryFromGltf(gltf, pointMaterial, Number(pointBudget.value));
+        points = new THREE.Points(result.geometry, pointMaterial);
+        points.renderOrder = 1;
+        scene.add(points);
+        currentStats = result.stats;
+        currentSource = { url, label: label || url };
+        fitCameraToPoints();
+        setStatus([
+          `模型: ${label || url}`,
+          `源顶点: ${result.stats.sourceVertices.toLocaleString()}`,
+          `采样点: ${result.stats.sampledPoints.toLocaleString()}`,
+          `采样步长: ${result.stats.step}`,
+          `贴图采样: ${result.stats.hasTexture ? '是' : '否'}`,
+          `统一缩放: ${result.stats.scale.toFixed(4)}`
+        ].join('\n'));
+      }catch(err){
+        console.error(err);
+        setStatus(`加载失败\n${label || url}\n请确认模型存在，或改用文件选择器拖入 .glb。`);
+      }finally{
+        veil.classList.remove('show');
+      }
+    }
+
+    function loadFile(file){
+      if(!file) return;
+      if(currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+      currentObjectUrl = URL.createObjectURL(file);
+      pathInput.value = '';
+      loadModelFromUrl(currentObjectUrl, file.name);
+    }
+
+    function reloadCurrent(){
+      if(currentSource){
+        loadModelFromUrl(currentSource.url, currentSource.label);
+        return;
+      }
+      const path = pathInput.value.trim();
+      if(path) loadModelFromUrl(path, path);
+    }
+
+    function animate(){
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      controls.update();
+      backLight.intensity = 3.0 + 1.0 * Math.sin(t * 0.7);
+      if(pointMaterial) pointMaterial.uniforms.uTime.value = t;
+      renderer.render(scene, camera);
+    }
+
+    fileInput.addEventListener('change', ()=>loadFile(fileInput.files && fileInput.files[0]));
+    document.getElementById('loadPathBtn').addEventListener('click', ()=>{
+      if(currentObjectUrl){
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
+      const path = pathInput.value.trim();
+      loadModelFromUrl(path, path);
+    });
+    document.getElementById('reloadBtn').addEventListener('click', reloadCurrent);
+    document.getElementById('fitBtn').addEventListener('click', fitCameraToPoints);
+    document.getElementById('copyBtn').addEventListener('click', async ()=>{
+      const stats = currentStats || {};
+      const text = [
+        `model: ${(currentSource && currentSource.label) || 'none'}`,
+        `budget: ${pointBudget.value}`,
+        `pointSize: ${pointSize.value}`,
+        `opacity: ${opacity.value}`,
+        `inkMix: ${inkMix.value}`,
+        `sampledPoints: ${stats.sampledPoints || 0}`,
+        `camera.position.set(${camera.position.x.toFixed(2)},${camera.position.y.toFixed(2)},${camera.position.z.toFixed(2)});`,
+        `controls.target.set(${controls.target.x.toFixed(2)},${controls.target.y.toFixed(2)},${controls.target.z.toFixed(2)});`,
+        `// FOV: ${camera.fov.toFixed(0)}`
+      ].join('\n');
+      await navigator.clipboard.writeText(text);
+      setStatus(`已复制参数\n${text}`);
+    });
+    [pointBudget, pointSize, opacity, inkMix].forEach(el=>el.addEventListener('input', updateUniforms));
+
+    ['dragenter','dragover'].forEach(type=>{
+      dropzone.addEventListener(type, event=>{
+        event.preventDefault();
+        dropzone.classList.add('drag');
+      });
+    });
+    ['dragleave','drop'].forEach(type=>{
+      dropzone.addEventListener(type, event=>{
+        event.preventDefault();
+        dropzone.classList.remove('drag');
+      });
+    });
+    dropzone.addEventListener('drop', event=>{
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      loadFile(file);
+    });
+
+    addEventListener('resize', ()=>{
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    updateUniforms();
+    animate();
+  </script>
+</body>
+</html>
