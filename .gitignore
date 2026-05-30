@@ -1,0 +1,11 @@
+.DS_Store
+**/.DS_Store
+
+# Local experiments and backups. Keep these on your computer only.
+drafts/
+backups/
+index copy.html
+index备用.html
+
+# Leftover test asset from a previous draft. Add it manually only if you truly want it live.
+assets/ns-bg.jpg
